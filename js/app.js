@@ -21,6 +21,7 @@
   var transcriptBox = $('transcript');
   var btnWord = $('btnWord');
   var btnPpt = $('btnPpt');
+  var btnSendPc = $('btnSendPc');
   var btnDelete = $('btnDelete');
   var exportMsg = $('exportMsg');
   var historyList = $('historyList');
@@ -143,24 +144,50 @@
     return h + '</div>';
   }
 
-  /* --- 자동 저장 + 우편함 전송 --- */
+  /* --- 자동 저장(폰 기록만). PC 전송은 교수님이 버튼으로 고른 것만 --- */
   function autoSave() {
     var data = currentData();
     if (!data) return;
-    var entry = HistoryModule.save(data);
+    var entry = HistoryModule.save(data);   // sent: null (미전송)
     if (!entry) { setExportMsg('⚠️ 저장 공간을 쓸 수 없어 기록하지 못했습니다.', 'err'); return; }
     currentId = entry.id;
-    setExportMsg('저장됨 · 사무소로 보내는 중…', 'work');
+    setExportMsg('폰에 저장됨. PC로 보내려면 아래 "🖥️ PC로 보내기"를 누르세요.', 'ok');
+    updateSendBtn();
     renderHistory();
-    if (window.OfficeBridge) {
-      OfficeBridge.push(entry, function (status, msg) {
-        setExportMsg('저장 완료 · ' + msg, status === 'sent' ? 'ok' : 'work');
-        renderHistory();
-      });
+  }
+
+  /* --- PC(사무소 우편함)로 보내기: 버튼으로만 실행 --- */
+  function sendToPc(id, onDone) {
+    var entry = HistoryModule.get(id);
+    if (!entry) { onDone && onDone(); return; }
+    if (entry.sent === true) { setExportMsg('이미 PC로 보낸 메모입니다.', 'ok'); onDone && onDone(); return; }
+    if (!window.OfficeBridge) { setExportMsg('전송 기능을 쓸 수 없습니다.', 'err'); onDone && onDone(); return; }
+    setExportMsg('🖥️ PC로 보내는 중…', 'work');
+    OfficeBridge.push(entry, function (status, msg) {
+      if (status === 'sent') setExportMsg('🖥️ PC로 보냈습니다. (몇 분 내 PC에 저장돼요)', 'ok');
+      else setExportMsg('전송 실패 · ' + msg + ' — 목록에서 [재시도]로 다시 보낼 수 있어요.', 'err');
+      updateSendBtn();
+      renderHistory();
+      onDone && onDone();
+    });
+  }
+
+  // 결과 화면의 PC 버튼 상태 갱신
+  function updateSendBtn() {
+    if (!btnSendPc) return;
+    var e = currentId ? HistoryModule.get(currentId) : null;
+    if (e && e.sent === true) {
+      btnSendPc.textContent = '✅ PC로 보냄';
+      btnSendPc.disabled = true; btnSendPc.classList.add('done');
     } else {
-      setExportMsg('저장됨 · ' + entry.date + ' ' + entry.time, 'ok');
+      btnSendPc.textContent = '🖥️ 이 메모 PC로 보내기';
+      btnSendPc.disabled = false; btnSendPc.classList.remove('done');
     }
   }
+  btnSendPc.addEventListener('click', function () {
+    if (!currentId) { setExportMsg('먼저 녹음해 주세요.', 'err'); return; }
+    sendToPc(currentId);
+  });
 
   /* --- 전사 원문을 고치면 정리·저장본도 갱신(전송은 다시 안 함) --- */
   transcriptBox.addEventListener('input', function () {
@@ -181,12 +208,10 @@
   /* --- 내보내기 --- */
   function runExport(fnName, label) {
     var data = currentData();
-    if (!data) { setExportMsg('먼저 녹음해 주세요.', 'err'); return; }
+    if (!data) { setExportMsg('먼저 녹음하세요. 저장할 내용이 없습니다.', 'err'); return; }
     setExportMsg(label + ' 파일을 만드는 중…', 'work');
-    ExportModule[fnName](data).then(function (result) {
-      if (result === 'shared') setExportMsg(label + ' 파일을 공유했습니다.', 'ok');
-      else if (result === 'aborted') setExportMsg('공유를 취소했습니다.', '');
-      else setExportMsg(label + ' 파일을 저장(다운로드)했습니다.', 'ok');
+    ExportModule[fnName](data).then(function () {
+      setExportMsg('✅ ' + label + ' 파일이 저장되었습니다. (폰의 "다운로드" 폴더에서 확인)', 'ok');
     }).catch(function (e) {
       var m = (e && e.message) || '';
       if (/불러오지 못|로드 실패/.test(m)) setExportMsg('⚠️ ' + label + ' 기능 파일을 인터넷에서 못 받았습니다. 연결 후 다시 눌러 주세요.', 'err');
@@ -200,6 +225,7 @@
   btnDelete.addEventListener('click', function () {
     if (currentId) HistoryModule.remove(currentId);
     currentId = null;
+    updateSendBtn();
     transcriptBox.value = '';
     resultArea.innerHTML = '';
     resultWrap.style.display = 'none';
@@ -217,14 +243,21 @@
       return;
     }
     historyList.innerHTML = list.map(function (e) {
-      var badge = e.sent === true ? '<span class="sent ok">전송됨</span>'
-        : (e.sent === false ? '<span class="sent wait">미전송</span>' : '');
+      var action;
+      if (e.sent === true) action = '<span class="sent ok">전송됨 ✓</span>';
+      else if (e.sent === false) action = '<button class="hsend retry" data-send="' + e.id + '">재시도</button>';
+      else action = '<button class="hsend" data-send="' + e.id + '">🖥️ PC로</button>';
       return '<div class="histitem" data-id="' + e.id + '">' +
         '<span class="htitle">' + esc(e.title) + '</span>' +
-        '<span class="hmeta">' + badge + '<span class="hdate">' + e.date + ' ' + e.time + '</span></span></div>';
+        '<span class="hmeta">' + action + '<span class="hdate">' + e.date + '</span></span></div>';
     }).join('');
+    // 항목 클릭 → 상세 / [PC로] 버튼 → 전송(상세 안 열리게 stopPropagation)
     Array.prototype.forEach.call(historyList.querySelectorAll('.histitem'), function (el) {
-      el.addEventListener('click', function () { openMemo(el.getAttribute('data-id')); });
+      el.addEventListener('click', function (ev) {
+        var sendId = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-send');
+        if (sendId) { ev.stopPropagation(); sendToPc(sendId); return; }
+        openMemo(el.getAttribute('data-id'));
+      });
     });
   }
 

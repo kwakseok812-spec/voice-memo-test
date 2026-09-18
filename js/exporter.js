@@ -56,30 +56,26 @@
       !(data.decisions || []).length);
   }
 
-  // 파일 전달: Web Share 우선 → 일반 다운로드 폴백
+  // 파일 전달: 공유창(Web Share)을 쓰지 않고 "바로 다운로드"한다.
+  //  - 폰에서 공유 시트가 뜨면 어디에 저장할지 헷갈린다는 교수님 피드백(2026-09-19).
+  //  - 안드로이드 크롬은 a.download + blob URL 이면 Downloads 폴더에 저장된다.
   function deliver(blob, name, mime) {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
       try {
-        const file = new File([blob], name, { type: mime });
-        if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-          navigator.share({ files: [file], title: name })
-            .then(function () { resolve('shared'); })
-            .catch(function (e) {
-              if (e && e.name === 'AbortError') { resolve('aborted'); return; }
-              _download(blob, name); resolve('downloaded');
-            });
-          return;
-        }
-      } catch (e) { /* File/canShare 미지원 → 다운로드 */ }
-      _download(blob, name); resolve('downloaded');
+        // 혹시 blob type 이 비어있으면 정확한 MIME 부여(확장자와 함께 인식 잘 되게)
+        var out = (mime && (!blob.type)) ? new Blob([blob], { type: mime }) : blob;
+        _download(out, name);
+        resolve('downloaded');
+      } catch (e) { reject(e); }
     });
   }
   function _download(blob, name) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+    a.rel = 'noopener';
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 5000);
   }
 
   /* ======================= 1) Markdown ======================= */

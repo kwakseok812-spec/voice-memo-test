@@ -24,11 +24,13 @@
   </header>
 
   <main>
-    <!-- 홈 화면 설치 안내 (자동 표시) -->
+    <!-- 홈 화면 설치 안내 (맨 위, 자동 표시) -->
     <div id="installBar" class="installbar" style="display:none;">
-      <button id="installBtn" class="installbtn" style="display:none;">📲 이 앱 홈 화면에 설치</button>
-      <a id="installHelpLink" class="installhelp" href="#" style="display:none;">설치가 안 되나요? 설치 방법 보기</a>
+      <div class="installtitle">📲 홈 화면에 설치하기</div>
+      <button id="installBtn" class="installbtn" style="display:none;">이 앱 홈 화면에 설치</button>
+      <a id="installHelpLink" class="installhelp" href="#">설치 방법 보기</a>
       <div id="installHelp" class="installhelp-box" style="display:none;"></div>
+      <div class="installnote">설치가 안 돼도 <b>이 주소로 그냥 쓸 수 있어요.</b> 설치는 홈 화면에 아이콘을 만드는 것뿐이에요.</div>
     </div>
 
     <div id="banner"></div>
@@ -57,10 +59,13 @@
       <div class="label">전사 원문 <span class="hint">(고치면 정리에 바로 반영돼요)</span></div>
       <textarea id="transcript" placeholder="녹음 내용이 여기에 글자로 나타납니다."></textarea>
 
-      <!-- 보기용 내보내기 (조용히) -->
+      <!-- PC로 보내기 (교수님이 고른 것만 전송) -->
+      <button id="btnSendPc" class="savebtn send">🖥️ 이 메모 PC로 보내기</button>
+
+      <!-- 파일로 저장: PPT 기본 + Word 보조 -->
+      <button id="btnPpt" class="savebtn primary">📊 PPT로 저장</button>
       <div class="btnrow subtle">
-        <button id="btnWord">📄 Word</button>
-        <button id="btnPpt">📊 PPT(초안)</button>
+        <button id="btnWord">📄 Word로 저장</button>
         <button id="btnDelete" class="danger">🗑 이 메모 삭제</button>
       </div>
       <div id="exportMsg" class="exportmsg"></div>
