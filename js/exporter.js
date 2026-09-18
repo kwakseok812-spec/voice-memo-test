@@ -19,10 +19,13 @@
   'use strict';
 
   // 라이브러리 CDN (필요할 때만 로드)
-  // ※ PDF는 교수님 확정으로 제외 — 보기용은 Word·PPT면 충분(한글폰트 임베드 불필요).
   const LIBS = {
-    docx: 'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js',      // window.docx
-    pptx: 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js' // window.PptxGenJS
+    docx: 'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js',       // window.docx
+    pptx: 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js', // window.PptxGenJS
+    // PDF: html2canvas 로 화면을 그려 이미지로 담는다 → 한글 폰트 임베드 없이도
+    //      한글이 절대 안 깨지고, 폰에서 앱 없이 브라우저 PDF 뷰어로 바로 열린다.
+    html2canvas: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+    jspdf: 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js'
   };
 
   const _loaded = {};
@@ -85,7 +88,8 @@
         ? arr.map(function (s) { return '- ' + s; }).join('\n')
         : '- (없음)';
     };
-    let md = '# 음성 메모 정리\n\n';
+    var h1 = (data && data.title && String(data.title).trim()) ? String(data.title).trim() : '음성 메모 정리';
+    let md = '# ' + h1 + '\n\n';
     md += '_작성일: ' + today() + '_\n\n';
     md += '## 📌 핵심 요약\n' + list(data.summary) + '\n\n';
     md += '## ✅ 할 일\n' + list(data.todos) + '\n\n';
@@ -195,11 +199,77 @@
     });
   }
 
+  /* ======================= 4) PDF (폰에서 바로 보기) ======================= */
+  /* html2canvas 로 정리 내용을 그려 이미지로 PDF에 담는다.
+   *  - 한글 폰트 임베드 없이도 한글이 절대 안 깨진다(브라우저 폰트로 렌더).
+   *  - 폰에서 새 탭으로 열면 브라우저 PDF 뷰어가 바로 보여준다(앱 불필요).
+   * @param win  클릭 시점에 미리 연 빈 탭(모바일 팝업차단 회피). 없으면 새로 연다.
+   */
+  function savePdf(data, win) {
+    if (isEmpty(data)) return Promise.reject(new Error('내보낼 정리 결과가 없습니다.'));
+    return Promise.all([loadScript(LIBS.html2canvas), loadScript(LIBS.jspdf)]).then(function () {
+      var h2c = global.html2canvas;
+      var jsPDFCtor = (global.jspdf && global.jspdf.jsPDF) || global.jsPDF;
+      if (!h2c || !jsPDFCtor) throw new Error('PDF 라이브러리를 불러오지 못했습니다.');
+
+      var el = _buildPrintable(data);
+      document.body.appendChild(el);
+      return h2c(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: 720 })
+        .then(function (canvas) {
+          el.remove();
+          var pdf = new jsPDFCtor({ unit: 'pt', format: 'a4' });
+          var pw = pdf.internal.pageSize.getWidth();
+          var ph = pdf.internal.pageSize.getHeight();
+          var imgW = pw;
+          var imgH = canvas.height * pw / canvas.width;
+          var img = canvas.toDataURL('image/jpeg', 0.95);
+          var heightLeft = imgH, position = 0;
+          pdf.addImage(img, 'JPEG', 0, position, imgW, imgH);
+          heightLeft -= ph;
+          while (heightLeft > 0) {                 // 여러 장으로 나눠 담기
+            position -= ph;
+            pdf.addPage();
+            pdf.addImage(img, 'JPEG', 0, position, imgW, imgH);
+            heightLeft -= ph;
+          }
+          var url = pdf.output('bloburl');
+          if (win && !win.closed) { try { win.location.href = url; return 'opened'; } catch (e) {} }
+          var w2 = global.open(url, '_blank');
+          if (w2) return 'opened';
+          pdf.save(filename('pdf'));                // 팝업 차단 시 다운로드로 폴백
+          return 'downloaded';
+        }).catch(function (e) { el.remove(); throw e; });
+    });
+  }
+
+  function _buildPrintable(data) {
+    var esc2 = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var ul = function (arr) {
+      if (!arr || !arr.length) return '<p style="color:#888;margin:4px 0">(없음)</p>';
+      return '<ul style="margin:4px 0 10px;padding-left:20px">' +
+        arr.map(function (s) { return '<li style="margin:4px 0">' + esc2(s) + '</li>'; }).join('') + '</ul>';
+    };
+    var title = (data.title && String(data.title).trim()) ? String(data.title).trim() : '음성 메모 정리';
+    var div = document.createElement('div');
+    div.style.cssText = 'position:absolute;left:-10000px;top:0;width:720px;padding:32px;' +
+      'background:#fff;color:#111;font-family:\'Malgun Gothic\',\'Apple SD Gothic Neo\',sans-serif;font-size:16px;line-height:1.7;';
+    var h = '<div style="font-size:24px;font-weight:800;color:#1d4ed8">' + esc2(title) + '</div>';
+    h += '<div style="color:#666;margin:4px 0 16px;font-size:13px">작성일: ' + today() + '</div>';
+    h += '<h2 style="font-size:18px;border-bottom:2px solid #2563eb;padding-bottom:4px;margin:14px 0 6px">핵심 요약</h2>' + ul(data.summary);
+    h += '<h2 style="font-size:18px;border-bottom:2px solid #2563eb;padding-bottom:4px;margin:14px 0 6px">할 일</h2>' + ul(data.todos);
+    h += '<h2 style="font-size:18px;border-bottom:2px solid #2563eb;padding-bottom:4px;margin:14px 0 6px">결정사항</h2>' + ul(data.decisions);
+    h += '<h2 style="font-size:18px;border-bottom:2px solid #2563eb;padding-bottom:4px;margin:14px 0 6px">전사 원문</h2>';
+    h += '<p style="white-space:pre-wrap;margin:4px 0">' + esc2(data.transcript || '(없음)') + '</p>';
+    div.innerHTML = h;
+    return div;
+  }
+
   global.ExportModule = {
     buildMarkdown: buildMarkdown,   // MD 문자열(기록용). history 저장에 사용.
     filename: filename,
-    saveMarkdown: saveMarkdown,     // MD 파일 저장(선택). 기본 UI는 Word/PPT가 우선.
+    saveMarkdown: saveMarkdown,     // MD 파일 저장(선택).
     saveDocx: saveDocx,
-    savePptx: savePptx
+    savePptx: savePptx,
+    savePdf: savePdf                // 폰에서 바로 보기(새 탭)
   };
 })(window);

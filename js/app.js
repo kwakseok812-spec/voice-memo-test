@@ -18,9 +18,11 @@
   var processingText = $('processingText');
   var resultWrap = $('resultWrap');
   var resultArea = $('resultArea');
+  var memoTitle = $('memoTitle');
   var transcriptBox = $('transcript');
   var btnWord = $('btnWord');
   var btnPpt = $('btnPpt');
+  var btnPdf = $('btnPdf');
   var btnSendPc = $('btnSendPc');
   var btnDelete = $('btnDelete');
   var exportMsg = $('exportMsg');
@@ -98,7 +100,8 @@
       transcriptBox.value = text;
       autoGrow(transcriptBox);
       analyzeAndShow();
-      autoSave();                    // 끝나면 자동 저장 + 우편함 전송
+      memoTitle.value = suggestTitle(text);   // 제목 자동 제안(고칠 수 있음)
+      autoSave();                    // 폰에 자동 저장(PC 전송은 버튼으로)
       setStatus('정리 완료', 'idle');
     }).catch(function (e) {
       console.warn(e);
@@ -109,12 +112,23 @@
     });
   }
 
-  /* --- 현재 전사로 정리해서 결과 화면 표시 --- */
+  /* --- 제목 자동 제안: 전사 앞부분, 없으면 "메모 M월 D일 HH시" --- */
+  function suggestTitle(text) {
+    var t = (text || '').replace(/\s+/g, ' ').trim();
+    if (t) return t.length > 15 ? t.slice(0, 15) : t;
+    var d = new Date();
+    return '메모 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + d.getHours() + '시';
+  }
+
+  /* --- 현재 전사+제목으로 정리 데이터 만들기 --- */
   function currentData() {
     var text = transcriptBox.value.trim();
     if (!text) return null;
     var r = AnalysisModule.analyze(text);
-    return { transcript: text, summary: r.summary, todos: r.todos, decisions: r.decisions, keywords: r.keywords };
+    return {
+      transcript: text, title: (memoTitle.value || '').trim(),
+      summary: r.summary, todos: r.todos, decisions: r.decisions, keywords: r.keywords
+    };
   }
 
   function analyzeAndShow() {
@@ -205,13 +219,18 @@
     }, 800);
   });
 
+  /* --- 제목을 고치면 저장본 제목(=PC 파일명) 즉시 갱신 --- */
+  memoTitle.addEventListener('input', function () {
+    if (currentId) { HistoryModule.update(currentId, currentData()); renderHistory(); }
+  });
+
   /* --- 내보내기 --- */
   function runExport(fnName, label) {
     var data = currentData();
     if (!data) { setExportMsg('먼저 녹음하세요. 저장할 내용이 없습니다.', 'err'); return; }
     setExportMsg(label + ' 파일을 만드는 중…', 'work');
     ExportModule[fnName](data).then(function () {
-      setExportMsg('✅ ' + label + ' 파일이 저장되었습니다. (폰의 "다운로드" 폴더에서 확인)', 'ok');
+      setExportMsg('✅ ' + label + ' 파일을 저장했어요 (다운로드 폴더 · 편집/PC용).', 'ok');
     }).catch(function (e) {
       var m = (e && e.message) || '';
       if (/불러오지 못|로드 실패/.test(m)) setExportMsg('⚠️ ' + label + ' 기능 파일을 인터넷에서 못 받았습니다. 연결 후 다시 눌러 주세요.', 'err');
@@ -220,6 +239,28 @@
   }
   btnWord.addEventListener('click', function () { runExport('saveDocx', 'Word'); });
   btnPpt.addEventListener('click', function () { runExport('savePptx', 'PPT'); });
+
+  // PDF: 폰에서 바로 보기 — 클릭 즉시 빈 탭을 열어(모바일 팝업차단 회피) PDF를 채운다
+  btnPdf.addEventListener('click', function () {
+    var data = currentData();
+    if (!data) { setExportMsg('먼저 녹음하세요. 저장할 내용이 없습니다.', 'err'); return; }
+    var win = null;
+    try {
+      win = window.open('', '_blank');
+      if (win) win.document.write('<!doctype html><meta charset="utf-8"><title>PDF 준비 중</title>' +
+        '<body style="font-family:sans-serif;padding:24px;color:#333;font-size:18px">📄 PDF를 만드는 중이에요… 잠시만요.</body>');
+    } catch (e) {}
+    setExportMsg('📄 PDF를 만드는 중…', 'work');
+    ExportModule.savePdf(data, win).then(function (r) {
+      if (r === 'opened') setExportMsg('📄 새 탭에서 PDF를 열었어요. 거기서 바로 보거나 저장하세요.', 'ok');
+      else setExportMsg('📄 PDF를 저장했어요 (다운로드 폴더).', 'ok');
+    }).catch(function (e) {
+      if (win && !win.closed) { try { win.close(); } catch (e2) {} }
+      var m = (e && e.message) || '';
+      if (/불러오지 못|로드 실패/.test(m)) setExportMsg('⚠️ PDF 기능 파일을 인터넷에서 못 받았습니다. 연결 후 다시 눌러 주세요.', 'err');
+      else setExportMsg('⚠️ PDF 만들기 실패: ' + m, 'err');
+    });
+  });
 
   /* --- 이 메모 삭제(방금 저장한 것 취소) --- */
   btnDelete.addEventListener('click', function () {

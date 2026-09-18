@@ -57,7 +57,7 @@
       id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       date: t.date,
       time: t.time,
-      title: _makeTitle(data),
+      title: (data.title && String(data.title).trim()) ? String(data.title).trim() : _makeTitle(data),
       data: data,
       sent: null,   // null=아직 시도전, true=전송됨, false=미전송(재시도 대기)
       markdown: (global.ExportModule && global.ExportModule.buildMarkdown)
@@ -83,7 +83,7 @@
     for (var i = 0; i < list.length; i++) {
       if (list[i].id === id) {
         list[i].data = data;
-        list[i].title = _makeTitle(data);
+        list[i].title = (data.title && String(data.title).trim()) ? String(data.title).trim() : _makeTitle(data);
         list[i].markdown = (global.ExportModule && global.ExportModule.buildMarkdown)
           ? global.ExportModule.buildMarkdown(data) : list[i].markdown;
         _write(list);

@@ -117,6 +117,14 @@ main { max-width: 640px; margin: 0 auto; }
 .btnrow button:active { background: #f3f4f6; }
 .btnrow button.accent { border-color: var(--primary); color: var(--primary); }
 
+/* 제목 입력칸 */
+.titleinput {
+  width: 100%; box-sizing: border-box; padding: 13px 14px; font-size: 17px; font-weight: 600;
+  border: 2px solid var(--primary); border-radius: 12px; font-family: inherit; color: var(--text);
+  background: #fff;
+}
+.savehint { font-size: 13px; color: var(--muted); text-align: center; margin: 4px 0 8px; line-height: 1.6; }
+
 /* 처리 중(변환·정리) 표시 */
 .processing {
   display: flex; align-items: center; gap: 12px;

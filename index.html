@@ -53,6 +53,9 @@
 
     <!-- 정리 결과 -->
     <div id="resultWrap" style="display:none;">
+      <div class="label">제목 <span class="hint">(PC에 저장될 파일 이름이 돼요)</span></div>
+      <input id="memoTitle" class="titleinput" type="text" maxlength="40" placeholder="메모 제목">
+
       <div class="label">정리 결과</div>
       <div id="resultArea"></div>
 
@@ -62,10 +65,14 @@
       <!-- PC로 보내기 (교수님이 고른 것만 전송) -->
       <button id="btnSendPc" class="savebtn send">🖥️ 이 메모 PC로 보내기</button>
 
-      <!-- 파일로 저장: PPT 기본 + Word 보조 -->
-      <button id="btnPpt" class="savebtn primary">📊 PPT로 저장</button>
+      <!-- 폰에서 바로 보기: PDF · 편집/보관용: PPT·Word -->
+      <button id="btnPdf" class="savebtn primary">📄 PDF로 보기</button>
       <div class="btnrow subtle">
-        <button id="btnWord">📄 Word로 저장</button>
+        <button id="btnPpt">📊 PPT</button>
+        <button id="btnWord">📄 Word</button>
+      </div>
+      <p class="savehint">폰에서 바로 보려면 <b>PDF</b> · 편집·보관은 <b>PPT/Word</b>(PC에서 열어요)</p>
+      <div class="btnrow subtle">
         <button id="btnDelete" class="danger">🗑 이 메모 삭제</button>
       </div>
       <div id="exportMsg" class="exportmsg"></div>
