@@ -24,6 +24,13 @@
   </header>
 
   <main>
+    <!-- 홈 화면 설치 안내 (자동 표시) -->
+    <div id="installBar" class="installbar" style="display:none;">
+      <button id="installBtn" class="installbtn" style="display:none;">📲 이 앱 홈 화면에 설치</button>
+      <a id="installHelpLink" class="installhelp" href="#" style="display:none;">설치가 안 되나요? 설치 방법 보기</a>
+      <div id="installHelp" class="installhelp-box" style="display:none;"></div>
+    </div>
+
     <div id="banner"></div>
 
     <!-- 상태 -->
@@ -106,6 +113,7 @@
   <script src="js/office-bridge.js"></script>
   <script src="js/history.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/install.js"></script>
 
   <!-- 서비스 워커 등록 (PWA 설치 요건). https 또는 localhost에서만 동작 -->
   <script>
