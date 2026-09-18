@@ -77,6 +77,22 @@
     return entry;
   }
 
+  /** 전사 원문을 고쳤을 때 저장된 메모 내용을 갱신(제목·정리·MD 재계산) */
+  function update(id, data) {
+    var list = _read();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) {
+        list[i].data = data;
+        list[i].title = _makeTitle(data);
+        list[i].markdown = (global.ExportModule && global.ExportModule.buildMarkdown)
+          ? global.ExportModule.buildMarkdown(data) : list[i].markdown;
+        _write(list);
+        return list[i];
+      }
+    }
+    return null;
+  }
+
   /** 전송 상태 갱신 (OfficeBridge 가 호출) */
   function markSent(id, sent) {
     const list = _read();
@@ -100,6 +116,6 @@
 
   global.HistoryModule = {
     save: save, list: list, get: get, remove: remove, clearAll: clearAll,
-    markSent: markSent
+    markSent: markSent, update: update
   };
 })(window);

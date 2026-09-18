@@ -20,7 +20,7 @@
 <body>
   <header>
     <h1>🎙️ 음성 메모 정리</h1>
-    <p>말하면 글자로 바꾸고, 핵심·할 일·결정사항으로 정리합니다 (테스트판)</p>
+    <p>녹음하고 정지하면, 알아서 글자로 바꾸고 정리해 저장해요</p>
   </header>
 
   <main>
@@ -43,45 +43,33 @@
     <!-- 큰 녹음 버튼 -->
     <button id="btnRecord" class="bigbtn">🎙️&nbsp;&nbsp;녹음 시작</button>
 
-    <!-- 보조 버튼 -->
-    <div class="btnrow">
-      <button id="btnDemo">예시로 정리해 보기</button>
-      <button id="btnAnalyze" class="accent">다시 정리하기</button>
+    <!-- 처리 중 표시 (변환·정리) -->
+    <div id="processing" class="processing" style="display:none;">
+      <span class="spinner"></span>
+      <span id="processingText">정리하는 중…</span>
     </div>
-    <div class="btnrow">
-      <button id="btnCopy">결과 복사</button>
-      <button id="btnReset">전체 지우기</button>
-    </div>
-
-    <!-- 전사 -->
-    <div class="label">말하는 중 (임시)</div>
-    <div id="interim"></div>
-
-    <div class="label">전사 원문 (직접 고칠 수 있어요)</div>
-    <textarea id="transcript" placeholder="녹음하면 여기에 글자가 나타납니다. 직접 고친 뒤 '다시 정리하기'를 눌러도 됩니다."></textarea>
 
     <!-- 정리 결과 -->
-    <div class="label">정리 결과</div>
-    <div id="resultArea">
-      <p class="empty" style="color:#6b7280;font-size:14px;">먼저 녹음하거나 예시 버튼을 눌러 주세요.</p>
-    </div>
+    <div id="resultWrap" style="display:none;">
+      <div class="label">정리 결과</div>
+      <div id="resultArea"></div>
 
-    <!-- 저장 / 내보내기 -->
-    <div class="label">저장 · 내보내기</div>
-    <div class="btnrow">
-      <button id="btnSave" class="accent">💾 이 메모 저장</button>
+      <div class="label">전사 원문 <span class="hint">(고치면 정리에 바로 반영돼요)</span></div>
+      <textarea id="transcript" placeholder="녹음 내용이 여기에 글자로 나타납니다."></textarea>
+
+      <!-- 보기용 내보내기 (조용히) -->
+      <div class="btnrow subtle">
+        <button id="btnWord">📄 Word</button>
+        <button id="btnPpt">📊 PPT(초안)</button>
+        <button id="btnDelete" class="danger">🗑 이 메모 삭제</button>
+      </div>
+      <div id="exportMsg" class="exportmsg"></div>
     </div>
-    <div class="btnrow">
-      <button id="btnWord">📄 Word</button>
-      <button id="btnPpt">📊 PPT(초안)</button>
-      <button id="btnMd">📝 기록(MD)</button>
-    </div>
-    <div id="exportMsg" class="exportmsg"></div>
 
     <!-- 지난 메모 -->
     <div class="label">지난 메모 <span id="historyCount" class="cnt"></span></div>
     <div id="historyList">
-      <p class="empty" style="color:#6b7280;font-size:14px;">저장한 메모가 여기에 쌓입니다.</p>
+      <p class="empty" style="color:#6b7280;font-size:14px;">녹음한 메모가 여기에 쌓입니다.</p>
     </div>
   </main>
 
@@ -102,12 +90,13 @@
   </div>
 
   <footer>
-    완전 클라이언트 방식 · 서버·API 키·비용 없음<br>
-    음성 인식은 브라우저(Chrome) 내장 기능을 사용하며 인터넷 연결이 필요합니다.
+    완전 무료 · 서버·API 키 없음 · 음성 변환은 브라우저 안에서 실행<br>
+    처음 한 번은 변환 준비에 20~60초쯤 걸릴 수 있어요(그 뒤론 빨라져요). 인터넷 연결 필요.
   </footer>
 
-  <!-- 모듈: 녹음 → 분석 → 내보내기 → 기록 → 화면 순서로 로드 -->
+  <!-- 모듈: 녹음 → 변환 → 분석 → 내보내기 → 우편함 → 기록 → 화면 -->
   <script src="js/recorder.js"></script>
+  <script src="js/transcriber.js"></script>
   <script src="js/analyzer.js"></script>
   <script src="js/exporter.js"></script>
   <script src="js/office-bridge.js"></script>

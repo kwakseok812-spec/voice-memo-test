@@ -8,14 +8,19 @@
  *        인터넷이 연결돼 있어야 동작한다. (완전 오프라인 STT는 지원 안 함)
  * ==========================================================================*/
 
-const CACHE = 'voice-memo-v2';
+const CACHE = 'voice-memo-v3';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/recorder.js',
+  './js/transcriber.js',
   './js/analyzer.js',
+  './js/exporter.js',
+  './js/office-bridge.js',
+  './js/history.js',
   './js/app.js',
+  './js/install.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'
