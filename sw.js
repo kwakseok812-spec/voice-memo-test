@@ -8,7 +8,7 @@
  *        인터넷이 연결돼 있어야 동작한다. (완전 오프라인 STT는 지원 안 함)
  * ==========================================================================*/
 
-const CACHE = 'voice-memo-v1';
+const CACHE = 'voice-memo-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -41,22 +41,46 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// 요청 처리: 캐시 우선, 없으면 네트워크 (네트워크 결과는 캐시에 갱신)
+// 요청 처리
+//  - HTML 문서(페이지 이동)는 "네트워크 우선": 새로 배포하면 바로 최신이 뜬다.
+//    (오프라인일 때만 캐시로 대체 → 앱이 안 열리는 일 방지)
+//  - 그 밖의 정적 파일(css/js/아이콘)은 "캐시 우선": 빠르고, 뒤에서 갱신.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;   // POST 등은 그대로 통과
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req)
+
+  const isDoc = req.mode === 'navigate' ||
+    (req.destination === 'document') ||
+    (req.headers.get('accept') || '').includes('text/html');
+
+  if (isDoc) {
+    // 네트워크 우선
+    event.respondWith(
+      fetch(req)
         .then((res) => {
-          // 성공한 동일 출처 응답만 캐시에 저장
           if (res && res.status === 200 && res.type === 'basic') {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }
           return res;
         })
-        .catch(() => cached);   // 오프라인이면 캐시로 대체
+        .catch(() => caches.match(req).then((c) => c || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // 캐시 우선(정적 자산)
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      const fetchPromise = fetch(req)
+        .then((res) => {
+          if (res && res.status === 200 && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() => cached);
       return cached || fetchPromise;
     })
   );
