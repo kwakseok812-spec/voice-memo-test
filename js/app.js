@@ -348,6 +348,12 @@
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // 폰/PC 감지: PC에선 PPT·Word를 펼쳐두고, 폰에선 접어 PDF를 앞세운다.
+  var isPhone = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+  document.body.classList.add(isPhone ? 'is-phone' : 'is-pc');
+  var officeExport = $('officeExport');
+  if (officeExport && !isPhone) officeExport.open = true;
+
   setStatus('대기 중', 'idle');
   renderHistory();
 

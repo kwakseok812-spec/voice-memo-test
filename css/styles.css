@@ -124,6 +124,20 @@ main { max-width: 640px; margin: 0 auto; }
   background: #fff;
 }
 .savehint { font-size: 13px; color: var(--muted); text-align: center; margin: 4px 0 8px; line-height: 1.6; }
+.savehint.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 10px; padding: 10px 12px; text-align: left; }
+.savebtn.primary.big { padding: 20px; font-size: 19px; }
+
+/* PPT·Word 묶음(폰에선 접힘) */
+details.office { margin: 6px 0; }
+details.office > summary {
+  cursor: pointer; list-style: none; text-align: center;
+  font-size: 14px; font-weight: 600; color: var(--primary-dark);
+  padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff;
+}
+details.office > summary::-webkit-details-marker { display: none; }
+details.office[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+details.office .btnrow { margin-top: 0; }
 
 /* 처리 중(변환·정리) 표시 */
 .processing {
