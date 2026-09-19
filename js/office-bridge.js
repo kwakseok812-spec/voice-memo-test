@@ -1,119 +1,158 @@
 /* ============================================================================
- * office-bridge.js  —  사무소 우편함 전송 모듈 (OfficeBridge)
+ * office-bridge.js  —  PC 우편함 클라이언트 (OfficeBridge)  [PC-중심 개편판]
  * ----------------------------------------------------------------------------
- * [역할]
- *  - 완료된 메모(MD)를 Supabase '우편함' 테이블에 넣는다(INSERT).
- *  - 그 뒤 이 PC의 도우미가 우편함을 확인해 .md 파일로 저장한다(앱과 무관).
- *  - 여기 들어가는 키는 **공개(anon/publishable) 키뿐**이다.
- *    이 키는 새어도 남의 글을 못 읽는다(RLS: anon 은 INSERT만 가능).
- *    ⛔ service_role(비밀) 키는 절대 앱/저장소에 넣지 않는다. PC 도우미 로컬에만.
+ * 폰의 역할: 오디오를 우편함(Supabase Storage)에 올리고, 결과를 되읽는다.
+ *   - send(memo, blob) : 오디오 업로드 + 메모 row 생성(status=pending)
+ *   - poll(id, token)  : PC가 처리한 결과(RPC) 조회 (status/transcript/문서URL)
+ *   - 오프라인 안전망: 업로드 실패 시 오디오를 IndexedDB에 보관 → 나중에 재시도.
  *
- * [실패 대비]  오프라인 등으로 전송 실패 시 조용히 끝내지 않는다.
- *  - 로컬 '아웃박스' 큐에 쌓아두고, 앱이 다시 열리거나 온라인이 되면 재시도한다.
- *  - 상태(sent/pending)는 HistoryModule 기록과 화면에 표시된다.
+ * 여기 들어가는 키는 **공개(publishable) 키뿐**. anon 은 "오디오 업로드"와
+ * "pending row 생성"만 가능하고, 남의 것을 읽거나 결과를 조작할 수 없다(RLS).
+ * ⛔ service_role(비밀) 키는 절대 앱에 넣지 않는다(PC 도우미만).
  * ==========================================================================*/
 
 (function (global) {
   'use strict';
 
-  // 공개 값 — 저장소(public repo)에 들어가도 안전한 것만.
-  const CONFIG = {
+  var CONFIG = {
     url: 'https://nasizwclypmaojvwfxnn.supabase.co',
-    // publishable(공개) 키. anon INSERT 전용 정책이 걸려 있어 노출돼도 안전.
     key: 'sb_publishable_H92J8-9eQB-bE4DQEUnHvw_jku33h7S',
-    table: 'voice_memos'
+    table: 'voice_memos',
+    bucket: 'voice-audio'
   };
 
-  const OUTBOX = 'voice_memo_outbox_v1';
-
-  function _readOutbox() {
-    try { return JSON.parse(localStorage.getItem(OUTBOX) || '[]'); }
-    catch (e) { return []; }
+  function uuid() {
+    if (global.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
   }
-  function _writeOutbox(arr) {
-    try { localStorage.setItem(OUTBOX, JSON.stringify(arr)); return true; }
-    catch (e) { return false; }
+  function token() {
+    var a = new Uint8Array(16);
+    (global.crypto || {}).getRandomValues ? crypto.getRandomValues(a) : a.forEach(function (_, i) { a[i] = Math.random() * 256 | 0; });
+    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+  function extFromBlob(blob) {
+    var t = (blob && blob.type) || '';
+    if (/webm/.test(t)) return 'webm';
+    if (/mp4|m4a|aac/.test(t)) return 'mp4';
+    if (/ogg/.test(t)) return 'ogg';
+    if (/wav/.test(t)) return 'wav';
+    return 'webm';
   }
 
-  // 실제 전송(INSERT). 성공 시 resolve, 실패 시 reject.
-  function _post(entry) {
-    const body = {
-      title: entry.title || '',
-      content_md: entry.markdown || '',
-      transcript: (entry.data && entry.data.transcript) || '',
-      meta: { app: 'voice-memo-test', local_id: entry.id, saved_at: entry.date + ' ' + entry.time }
+  /* ---------- IndexedDB: 업로드 못한 오디오 임시 보관 ---------- */
+  var DB_NAME = 'voice_memo_audio', STORE = 'pending';
+  function _db() {
+    return new Promise(function (resolve, reject) {
+      try {
+        var rq = indexedDB.open(DB_NAME, 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore(STORE, { keyPath: 'id' }); };
+        rq.onsuccess = function () { resolve(rq.result); };
+        rq.onerror = function () { reject(rq.error); };
+      } catch (e) { reject(e); }
+    });
+  }
+  function idbPut(rec) {
+    return _db().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put(rec);
+        tx.oncomplete = function () { res(true); }; tx.onerror = function () { rej(tx.error); };
+      });
+    }).catch(function () { return false; });
+  }
+  function idbAll() {
+    return _db().then(function (db) {
+      return new Promise(function (res) {
+        var out = [], tx = db.transaction(STORE, 'readonly'), cur = tx.objectStore(STORE).openCursor();
+        cur.onsuccess = function () { var c = cur.result; if (c) { out.push(c.value); c.continue(); } else res(out); };
+        cur.onerror = function () { res(out); };
+      });
+    }).catch(function () { return []; });
+  }
+  function idbDel(id) {
+    return _db().then(function (db) {
+      return new Promise(function (res) {
+        var tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).delete(id);
+        tx.oncomplete = function () { res(true); }; tx.onerror = function () { res(false); };
+      });
+    }).catch(function () { return false; });
+  }
+
+  /* ---------- 네트워크 ---------- */
+  function uploadAudio(id, ext, blob) {
+    var path = id + '.' + ext;
+    return fetch(CONFIG.url + '/storage/v1/object/' + CONFIG.bucket + '/' + path, {
+      method: 'POST',
+      headers: {
+        'apikey': CONFIG.key, 'Authorization': 'Bearer ' + CONFIG.key,
+        'Content-Type': (blob && blob.type) || 'audio/webm'
+        // ※ x-upsert 안 씀: 경로가 UUID라 고유 → 순수 INSERT(anon 업로드 정책과 일치).
+        //    upsert 를 켜면 UPDATE 정책까지 필요해 RLS 로 막힌다.
+      },
+      body: blob
+    }).then(function (r) { if (!r.ok) throw new Error('오디오 업로드 실패(HTTP ' + r.status + ')'); return path; });
+  }
+  function createMemo(memo, audioPath) {
+    var body = {
+      id: memo.id, title: memo.title, status: 'pending',
+      audio_path: audioPath, client_token: memo.token,
+      meta: { app: 'voice-memo-test', ext: memo.ext }
     };
     return fetch(CONFIG.url + '/rest/v1/' + CONFIG.table, {
       method: 'POST',
       headers: {
-        'apikey': CONFIG.key,
-        'Authorization': 'Bearer ' + CONFIG.key,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'   // 되돌려받지 않음 → SELECT 권한 불필요
+        'apikey': CONFIG.key, 'Authorization': 'Bearer ' + CONFIG.key,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal'
       },
       body: JSON.stringify(body)
-    }).then(function (res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return true;
-    });
+    }).then(function (r) { if (!r.ok) throw new Error('메모 등록 실패(HTTP ' + r.status + ')'); return true; });
   }
 
-  /**
-   * 메모 하나를 사무소로 보낸다.
-   * @param entry  HistoryModule 이 저장한 entry
-   * @param onStatus  function('sent'|'pending', message)
-   */
-  function push(entry, onStatus) {
-    onStatus = onStatus || function () {};
-    _post(entry)
-      .then(function () {
-        if (global.HistoryModule) global.HistoryModule.markSent(entry.id, true);
-        onStatus('sent', '사무소로 전송됨');
-      })
+  // 오디오 업로드 + 메모 등록. 실패하면 IndexedDB에 오디오를 넣고 throw.
+  function send(memo, blob) {
+    return uploadAudio(memo.id, memo.ext, blob)
+      .then(function (path) { return createMemo(memo, path); })
+      .then(function () { return idbDel(memo.id); })   // 성공 시 대기분 제거
       .catch(function (e) {
-        // 실패 → 아웃박스에 저장하고 나중에 재시도
-        const box = _readOutbox();
-        if (!box.some(function (x) { return x.id === entry.id; })) {
-          box.push({ id: entry.id, title: entry.title, markdown: entry.markdown,
-                     date: entry.date, time: entry.time, data: { transcript: (entry.data||{}).transcript || '' } });
-          _writeOutbox(box);
-        }
-        if (global.HistoryModule) global.HistoryModule.markSent(entry.id, false);
-        onStatus('pending', '전송 대기(오프라인일 수 있음) · 나중에 자동 재시도');
+        return idbPut({ id: memo.id, title: memo.title, token: memo.token, ext: memo.ext, blob: blob, date: memo.date, time: memo.time })
+          .then(function () { throw e; });
       });
   }
 
-  /** 아웃박스에 밀린 것들을 재시도. onProgress(sentCount, remaining) */
-  function flush(onProgress) {
-    onProgress = onProgress || function () {};
-    let box = _readOutbox();
-    if (!box.length) { onProgress(0, 0); return; }
-
-    let sent = 0;
-    // 순차 처리(간단·안전)
-    function next(i) {
-      if (i >= box.length) {
-        // 성공한 것 제거
-        const remain = _readOutbox().filter(function (x) { return !x.__done; });
-        _writeOutbox(remain);
-        onProgress(sent, remain.length);
-        return;
-      }
-      _post(box[i])
-        .then(function () {
-          box[i].__done = true; sent++;
-          if (global.HistoryModule) global.HistoryModule.markSent(box[i].id, true);
-        })
-        .catch(function () { /* 남겨두고 다음 기회에 */ })
-        .then(function () { next(i + 1); });
-    }
-    next(0);
+  // 결과 조회(RPC). 결과 객체 또는 null.
+  function poll(id, tok) {
+    return fetch(CONFIG.url + '/rest/v1/rpc/get_voice_memo', {
+      method: 'POST',
+      headers: { 'apikey': CONFIG.key, 'Authorization': 'Bearer ' + CONFIG.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_id: id, p_token: tok })
+    }).then(function (r) { if (!r.ok) throw new Error('결과 조회 실패(HTTP ' + r.status + ')'); return r.json(); })
+      .then(function (arr) { return (arr && arr[0]) || null; });
   }
 
-  function pendingCount() { return _readOutbox().length; }
+  // 오프라인으로 밀렸던 오디오 재업로드. onEach(memo) 성공 콜백.
+  function flush(onEach) {
+    return idbAll().then(function (list) {
+      var i = 0;
+      function next() {
+        if (i >= list.length) return Promise.resolve();
+        var rec = list[i++];
+        var memo = { id: rec.id, title: rec.title, token: rec.token, ext: rec.ext, date: rec.date, time: rec.time };
+        return uploadAudio(memo.id, memo.ext, rec.blob)
+          .then(function (p) { return createMemo(memo, p); })
+          .then(function () { return idbDel(memo.id); })
+          .then(function () { onEach && onEach(memo); })
+          .catch(function () { /* 다음 기회 */ })
+          .then(next);
+      }
+      return next();
+    });
+  }
+  function pendingCount() { return idbAll().then(function (l) { return l.length; }); }
 
-  global.OfficeBridge = { push: push, flush: flush, pendingCount: pendingCount, CONFIG: CONFIG };
-
-  // 온라인이 되면 자동으로 밀린 것 재시도
+  global.OfficeBridge = {
+    CONFIG: CONFIG, uuid: uuid, token: token, extFromBlob: extFromBlob,
+    send: send, poll: poll, flush: flush, pendingCount: pendingCount
+  };
   global.addEventListener('online', function () { flush(); });
 })(window);
