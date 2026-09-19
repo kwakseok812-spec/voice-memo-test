@@ -18,11 +18,14 @@
 (function (global) {
   'use strict';
 
-  // 느리면 'Xenova/whisper-tiny' 로 바꾸면 빨라진다(대신 한국어 정확도↓).
-  var MODEL = 'Xenova/whisper-base';
+  // 정확도 우선: small 먼저 시도 → 폰에서 무겁거나 로드 실패하면 base 로 자동 폴백.
+  // (base 도 안 되면 tiny 까지 — 최악에도 앱이 죽지 않게)
+  var MODELS = ['Xenova/whisper-small', 'Xenova/whisper-base', 'Xenova/whisper-tiny'];
   var TF_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0';
 
-  var _tf = null, _asr = null, _loading = null;
+  var _tf = null, _asr = null, _loading = null, _model = null;
+
+  function _shortName(name) { return (name || '').split('/').pop().replace('whisper-', ''); }
 
   function _ensure(onProgress) {
     if (_asr) return Promise.resolve(_asr);
@@ -31,22 +34,34 @@
       onProgress && onProgress({ phase: 'lib' });
       _tf = await import(TF_URL);
       var device = ('gpu' in navigator) ? 'webgpu' : 'wasm';
-      onProgress && onProgress({ phase: 'model', device: device });
-      _asr = await _tf.pipeline('automatic-speech-recognition', MODEL, {
-        device: device,
-        progress_callback: function (x) {
-          if (x && x.status === 'progress' && /\.onnx/.test(x.file || '')) {
-            onProgress && onProgress({ phase: 'download', pct: Math.round(x.progress || 0), file: x.file });
-          }
+
+      for (var i = 0; i < MODELS.length; i++) {
+        var name = MODELS[i];
+        try {
+          onProgress && onProgress({ phase: 'model', device: device, model: _shortName(name) });
+          var asr = await _tf.pipeline('automatic-speech-recognition', name, {
+            device: device,
+            progress_callback: function (x) {
+              if (x && x.status === 'progress' && /\.onnx/.test(x.file || '')) {
+                onProgress && onProgress({ phase: 'download', pct: Math.round(x.progress || 0), file: x.file, model: _shortName(name) });
+              }
+            }
+          });
+          // 워밍업 겸 건강검진: 무음 1초를 돌려본다.
+          //  - WebGPU 첫 추론 공백 방지 + 이 모델이 이 기기에서 실제로 도는지 확인.
+          //  - 여기서 실패(메모리 부족 등)하면 다음(더 가벼운) 모델로 폴백.
+          onProgress && onProgress({ phase: 'model', device: device, model: _shortName(name) });
+          await asr(new Float32Array(16000), { language: 'korean', task: 'transcribe' });
+          _asr = asr; _model = name;
+          if (global.console) console.log('[transcriber] 사용 모델:', name, '/ device:', device);
+          return _asr;
+        } catch (e) {
+          if (global.console) console.warn('[transcriber] 모델 로드/워밍업 실패 → 폴백:', name, e);
+          _asr = null;
+          // 다음 모델로 계속
         }
-      });
-      // 워밍업: WebGPU는 파이프라인 생성 직후 "첫 추론"이 빈 결과를 내는 경우가 있어,
-      // 무음 1초를 한 번 돌려 셰이더를 미리 컴파일해 둔다(첫 실제 변환이 정상 나오게).
-      try {
-        onProgress && onProgress({ phase: 'model', device: device });
-        await _asr(new Float32Array(16000), { language: 'korean', task: 'transcribe' });
-      } catch (e) { /* 워밍업 실패는 무시 */ }
-      return _asr;
+      }
+      throw new Error('음성 변환 모델을 불러오지 못했습니다.');
     })();
     return _loading;
   }
@@ -79,10 +94,14 @@
     var audio = await _decodeTo16kMono(blob);
     onProgress && onProgress({ phase: 'transcribe' });
     var out = await asr(audio, {
+      // 한국어 고정(자동감지가 한국어를 놓치는 오인식 방지) + 받아쓰기 작업 명시
       language: 'korean',
       task: 'transcribe',
       chunk_length_s: 30,
-      stride_length_s: 5
+      stride_length_s: 5,
+      temperature: 0,                 // 그리디 디코딩(무작위성 제거 → 재현성·정확도)
+      no_repeat_ngram_size: 3,        // 같은 말 반복 오류 억제
+      condition_on_previous_text: true
     });
     return ((out && out.text) || '').trim();
   }
@@ -90,5 +109,10 @@
   // 앱이 시작될 때 미리 모델을 데워두고 싶을 때(선택). 실패해도 무시.
   function warmup(onProgress) { return _ensure(onProgress).catch(function () {}); }
 
-  global.TranscriberModule = { transcribe: transcribe, warmup: warmup, MODEL: MODEL };
+  function currentModel() { return _model ? _shortName(_model) : null; }
+
+  global.TranscriberModule = {
+    transcribe: transcribe, warmup: warmup,
+    MODELS: MODELS, currentModel: currentModel
+  };
 })(window);

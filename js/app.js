@@ -85,10 +85,10 @@
 
     TranscriberModule.transcribe(blob, function (p) {
       if (p.phase === 'lib') setProcessing('🖊️ 변환 기능 불러오는 중…');
-      else if (p.phase === 'model') setProcessing('🖊️ 변환 모델 준비 중…' + (p.device === 'wasm' ? ' (CPU 모드)' : ''));
-      else if (p.phase === 'download') setProcessing('⬇️ 처음 준비 중… ' + p.pct + '% (다음부터는 빨라져요)');
+      else if (p.phase === 'model') setProcessing('🖊️ 변환 모델 준비 중…' + (p.model ? ' (' + p.model + (p.device === 'wasm' ? ' · CPU' : '') + ')' : ''));
+      else if (p.phase === 'download') setProcessing('⬇️ 처음 한 번 모델 받는 중… ' + p.pct + '% (수백MB라 1~2분 걸릴 수 있어요)');
       else if (p.phase === 'decode') setProcessing('🖊️ 소리를 글자로 바꾸는 중…');
-      else if (p.phase === 'transcribe') setProcessing('🖊️ 글자로 옮기는 중…');
+      else if (p.phase === 'transcribe') setProcessing('🖊️ 글자로 옮기는 중… (조금 느릴 수 있어요)');
     }).then(function (text) {
       btnRecord.disabled = false;
       hideProcessing();
